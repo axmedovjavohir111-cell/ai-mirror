@@ -1,0 +1,694 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Ko'zgu — Siz qanday ko'rinasiz?</title>
+<script defer src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Playfair+Display:wght@400;700&family=DM+Sans:wght@300;400;500&display=swap');
+
+:root {
+  --bg: #08060f;
+  --surface: #0e0b1a;
+  --border: rgba(180,140,255,0.12);
+  --purple: #b48cff;
+  --pink: #ff6eb0;
+  --gold: #ffd97d;
+  --green: #5effa0;
+  --red: #ff5f7e;
+  --blue: #5eb8ff;
+  --text: #e8e0ff;
+  --muted: rgba(232,224,255,0.4);
+  --mono: 'DM Mono', monospace;
+  --serif: 'Playfair Display', serif;
+  --sans: 'DM Sans', sans-serif;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* Ambient background */
+body::before {
+  content: '';
+  position: fixed; inset: 0; pointer-events: none;
+  background:
+    radial-gradient(ellipse 60% 50% at 20% 20%, rgba(180,140,255,0.07) 0%, transparent 70%),
+    radial-gradient(ellipse 50% 40% at 80% 80%, rgba(255,110,176,0.06) 0%, transparent 70%);
+}
+
+/* Loading */
+#loadScreen {
+  position: fixed; inset: 0;
+  background: var(--bg);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 24px; z-index: 999;
+}
+.load-title { font-family: var(--serif); font-size: 28px; color: var(--purple); }
+.load-sub { font-family: var(--mono); font-size: 11px; letter-spacing: 3px; color: var(--muted); }
+.load-track { width: 280px; height: 1px; background: rgba(180,140,255,0.15); }
+.load-fill { height: 100%; width: 0%; background: linear-gradient(90deg, var(--purple), var(--pink)); transition: width .4s; box-shadow: 0 0 12px var(--purple); }
+.load-msg { font-family: var(--mono); font-size: 10px; letter-spacing: 2px; color: rgba(180,140,255,0.5); }
+
+/* Header */
+.header {
+  padding: 20px 32px;
+  display: flex; align-items: center; justify-content: space-between;
+  border-bottom: 1px solid var(--border);
+  position: relative;
+}
+.header-logo { font-family: var(--serif); font-size: 20px; color: var(--purple); }
+.header-tag { font-family: var(--mono); font-size: 10px; letter-spacing: 3px; color: var(--muted); }
+.header-live {
+  display: flex; align-items: center; gap: 8px;
+  font-family: var(--mono); font-size: 10px; letter-spacing: 2px; color: var(--muted);
+}
+.live-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); animation: pulse 1.5s infinite; }
+@keyframes pulse { 0%,100%{opacity:1; transform:scale(1)} 50%{opacity:.4; transform:scale(.8)} }
+
+/* Layout */
+.layout {
+  display: grid;
+  grid-template-columns: 1fr 320px;
+  gap: 0;
+  min-height: calc(100vh - 70px);
+}
+
+/* Camera side */
+.cam-side {
+  padding: 28px;
+  display: flex; flex-direction: column; gap: 20px;
+  border-right: 1px solid var(--border);
+}
+
+.cam-label {
+  font-family: var(--mono); font-size: 10px; letter-spacing: 3px;
+  color: var(--muted); display: flex; align-items: center; gap: 10px;
+}
+.cam-label::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+
+/* Camera container */
+.cam-container {
+  position: relative;
+  border-radius: 8px; overflow: hidden;
+  background: #000;
+  border: 1px solid var(--border);
+  aspect-ratio: 4/3;
+  max-height: 480px;
+}
+
+#video {
+  width: 100%; height: 100%; object-fit: cover;
+  display: block; transform: scaleX(-1);
+}
+#overlay {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  pointer-events: none; transform: scaleX(-1);
+}
+
+/* Vignette on cam */
+.cam-container::after {
+  content: '';
+  position: absolute; inset: 0;
+  background: radial-gradient(ellipse at center, transparent 50%, rgba(8,6,15,0.5) 100%);
+  pointer-events: none;
+}
+
+/* Corner decorations */
+.cam-corners { position: absolute; inset: 0; pointer-events: none; z-index: 5; }
+.cc {
+  position: absolute; width: 20px; height: 20px;
+  border-color: var(--purple); border-style: solid; opacity: 0.6;
+  transition: opacity .3s, box-shadow .3s;
+}
+.cc.tl { top: 10px; left: 10px; border-width: 1.5px 0 0 1.5px; }
+.cc.tr { top: 10px; right: 10px; border-width: 1.5px 1.5px 0 0; }
+.cc.bl { bottom: 10px; left: 10px; border-width: 0 0 1.5px 1.5px; }
+.cc.br { bottom: 10px; right: 10px; border-width: 0 1.5px 1.5px 0; }
+.active-cam .cc { opacity: 1; box-shadow: 0 0 8px var(--purple); animation: cornerPulse 2s ease-in-out infinite; }
+@keyframes cornerPulse { 0%,100%{opacity:1} 50%{opacity:.5} }
+
+/* Cam bottom bar */
+.cam-bar {
+  position: absolute; bottom: 0; left: 0; right: 0;
+  padding: 12px 16px;
+  background: linear-gradient(transparent, rgba(8,6,15,0.9));
+  font-family: var(--mono); font-size: 10px; letter-spacing: 2px;
+  color: var(--muted); display: flex; align-items: center; gap: 8px;
+  z-index: 6;
+}
+.cam-bar-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--green); animation: pulse 1.5s infinite; }
+
+/* Quick stats below cam */
+.quick-stats {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px;
+}
+.qs {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px; padding: 12px 10px; text-align: center;
+}
+.qs-val {
+  font-family: var(--serif); font-size: 22px;
+  background: linear-gradient(135deg, var(--purple), var(--pink));
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  background-clip: text;
+  line-height: 1; margin-bottom: 4px;
+  min-height: 28px; display: flex; align-items: center; justify-content: center;
+}
+.qs-lbl { font-family: var(--mono); font-size: 9px; letter-spacing: 2px; color: var(--muted); }
+
+/* Right panel */
+.right-panel {
+  padding: 24px 20px;
+  display: flex; flex-direction: column; gap: 18px;
+  overflow-y: auto;
+}
+
+/* Score card */
+.score-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px; padding: 20px;
+  text-align: center; position: relative; overflow: hidden;
+}
+.score-card::before {
+  content: '';
+  position: absolute; top: 0; left: 0; right: 0; height: 2px;
+  background: linear-gradient(90deg, var(--purple), var(--pink), var(--gold));
+}
+.score-title { font-family: var(--mono); font-size: 9px; letter-spacing: 3px; color: var(--muted); margin-bottom: 10px; }
+.score-number {
+  font-family: var(--serif); font-size: 52px; line-height: 1;
+  background: linear-gradient(135deg, var(--gold), var(--pink));
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+.score-label { font-family: var(--sans); font-size: 12px; color: var(--muted); margin-top: 6px; }
+
+/* Ring gauge */
+.ring-wrap { display: flex; justify-content: center; margin: 4px 0; }
+.ring-svg { transform: rotate(-90deg); }
+
+/* Trait rows */
+.section-title {
+  font-family: var(--mono); font-size: 9px; letter-spacing: 3px; color: var(--muted);
+  display: flex; align-items: center; gap: 8px;
+}
+.section-title::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+
+.trait {
+  display: flex; flex-direction: column; gap: 5px;
+}
+.trait-header { display: flex; justify-content: space-between; align-items: center; }
+.trait-name { font-size: 12px; color: var(--text); }
+.trait-val { font-family: var(--mono); font-size: 11px; }
+.trait-bar { height: 3px; background: rgba(255,255,255,0.06); border-radius: 2px; overflow: hidden; }
+.trait-fill { height: 100%; border-radius: 2px; transition: width .6s cubic-bezier(.4,0,.2,1); }
+
+/* Emotion grid */
+.emotion-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.emo-chip {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid var(--border);
+  border-radius: 20px; padding: 8px 12px;
+  display: flex; align-items: center; justify-content: space-between;
+  font-size: 11px; transition: all .3s;
+}
+.emo-chip.top { border-color: rgba(180,140,255,0.4); background: rgba(180,140,255,0.08); }
+.emo-icon { font-size: 14px; }
+.emo-name { font-family: var(--sans); color: var(--muted); font-size: 10px; flex: 1; margin: 0 6px; }
+.emo-pct { font-family: var(--mono); font-size: 10px; color: var(--purple); }
+
+/* Face shape */
+.face-shape-wrap {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 8px; padding: 16px;
+}
+.face-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.tag {
+  padding: 4px 12px; border-radius: 20px;
+  font-family: var(--mono); font-size: 9px; letter-spacing: 1px;
+  background: rgba(180,140,255,0.1); border: 1px solid rgba(180,140,255,0.2);
+  color: var(--purple);
+}
+
+/* No face message */
+.no-face {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 10px; padding: 40px 20px; text-align: center;
+}
+.no-face-icon { font-size: 40px; opacity: .3; }
+.no-face-txt { font-family: var(--mono); font-size: 10px; letter-spacing: 2px; color: var(--muted); }
+
+@keyframes spin { to { transform: rotate(360deg); } }
+.spin { animation: spin .8s linear infinite; display: inline-block; }
+
+@media (max-width: 768px) {
+  .layout { grid-template-columns: 1fr; }
+  .cam-side { border-right: none; border-bottom: 1px solid var(--border); padding: 16px; }
+  .right-panel { padding: 16px; }
+  .quick-stats { grid-template-columns: repeat(2, 1fr); }
+}
+</style>
+</head>
+<body>
+
+<!-- Loading -->
+<div id="loadScreen">
+  <div class="load-title">AI Ko'zgu</div>
+  <div class="load-sub">Siz qanday ko'rinasiz — sun'iy intellekt ko'zi bilan</div>
+  <div class="load-track"><div class="load-fill" id="loadFill"></div></div>
+  <div class="load-msg" id="loadMsg">MODELLAR YUKLANMOQDA...</div>
+</div>
+
+<!-- Header -->
+<div class="header">
+  <div>
+    <div class="header-logo">AI Ko'zgu</div>
+    <div class="header-tag">REAL VAQT TAHLILI</div>
+  </div>
+  <div class="header-live">
+    <div class="live-dot"></div>
+    <span id="clock">00:00:00</span>
+  </div>
+</div>
+
+<!-- Layout -->
+<div class="layout">
+
+  <!-- Camera Side -->
+  <div class="cam-side">
+    <div class="cam-label">JONLI KAMERA</div>
+
+    <div class="cam-container" id="camContainer">
+      <video id="video" autoplay muted playsinline></video>
+      <canvas id="overlay"></canvas>
+      <div class="cam-corners">
+        <div class="cc tl"></div><div class="cc tr"></div>
+        <div class="cc bl"></div><div class="cc br"></div>
+      </div>
+      <div class="cam-bar">
+        <div class="cam-bar-dot"></div>
+        <span id="camBarTxt">Kamera ishga tushmoqda...</span>
+      </div>
+    </div>
+
+    <!-- Quick stats -->
+    <div class="quick-stats">
+      <div class="qs">
+        <div class="qs-val" id="qAge">—</div>
+        <div class="qs-lbl">YOŠ</div>
+      </div>
+      <div class="qs">
+        <div class="qs-val" id="qGender">—</div>
+        <div class="qs-lbl">JINSi</div>
+      </div>
+      <div class="qs">
+        <div class="qs-val" id="qMood">—</div>
+        <div class="qs-lbl">KAYFIYAT</div>
+      </div>
+      <div class="qs">
+        <div class="qs-val" id="qConf">—</div>
+        <div class="qs-lbl">ANIQLIK</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Right Panel -->
+  <div class="right-panel" id="rightPanel">
+    <div class="no-face" id="noFaceMsg">
+      <div class="no-face-icon">👁</div>
+      <div class="no-face-txt">KAMERAGA QARANG<br>TAHLIL BOSHLANADI</div>
+    </div>
+
+    <!-- Hidden until face detected -->
+    <div id="analysisContent" style="display:none; display:flex; flex-direction:column; gap:18px;">
+
+      <!-- Overall score -->
+      <div class="score-card">
+        <div class="score-title">UMUMIY BAL</div>
+        <div class="ring-wrap">
+          <svg class="ring-svg" width="100" height="100" viewBox="0 0 100 100">
+            <circle cx="50" cy="50" r="42" fill="none" stroke="rgba(255,255,255,0.05)" stroke-width="8"/>
+            <circle id="ringCircle" cx="50" cy="50" r="42" fill="none" 
+              stroke="url(#ringGrad)" stroke-width="8" stroke-linecap="round"
+              stroke-dasharray="264" stroke-dashoffset="264"
+              style="transition: stroke-dashoffset .8s cubic-bezier(.4,0,.2,1)"/>
+            <defs>
+              <linearGradient id="ringGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#b48cff"/>
+                <stop offset="100%" stop-color="#ff6eb0"/>
+              </linearGradient>
+            </defs>
+          </svg>
+        </div>
+        <div class="score-number" id="scoreNum">—</div>
+        <div class="score-label" id="scoreLabel">Tahlil kutilmoqda...</div>
+      </div>
+
+      <!-- Traits -->
+      <div class="section-title">XUSUSIYATLAR</div>
+
+      <div style="display:flex;flex-direction:column;gap:10px;" id="traitsWrap">
+        <!-- filled by JS -->
+      </div>
+
+      <!-- Emotions -->
+      <div class="section-title">HISSIYOTLAR</div>
+      <div class="emotion-grid" id="emoGrid"></div>
+
+      <!-- Face tags -->
+      <div class="face-shape-wrap">
+        <div class="section-title" style="font-size:9px;letter-spacing:3px;color:var(--muted);">TAVSIF</div>
+        <div class="face-tags" id="faceTags"></div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script>
+const MODEL_URL = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.12/model';
+
+// Clock
+setInterval(() => {
+  document.getElementById('clock').textContent = new Date().toTimeString().slice(0,8);
+}, 1000);
+
+// Load models
+async function loadModels() {
+  const fill = document.getElementById('loadFill');
+  const msg = document.getElementById('loadMsg');
+  try {
+    msg.textContent = 'SSD MobileNet yuklanmoqda...';
+    fill.style.width = '15%';
+    await faceapi.nets.ssdMobilenetv1.loadFromUri(MODEL_URL);
+
+    msg.textContent = 'Landmark modeli...';
+    fill.style.width = '45%';
+    await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
+
+    msg.textContent = 'Yosh/Jins modeli...';
+    fill.style.width = '70%';
+    await faceapi.nets.ageGenderNet.loadFromUri(MODEL_URL);
+
+    msg.textContent = 'Hissiyot modeli...';
+    fill.style.width = '90%';
+    await faceapi.nets.faceExpressionNet.loadFromUri(MODEL_URL);
+
+    fill.style.width = '100%';
+    msg.textContent = 'TAYYOR!';
+    await new Promise(r => setTimeout(r, 500));
+    document.getElementById('loadScreen').style.display = 'none';
+
+    await startCamera();
+  } catch(e) {
+    msg.textContent = 'XATO: ' + e.message;
+  }
+}
+
+async function startCamera() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 1280, height: 720, facingMode: 'user' } });
+    const video = document.getElementById('video');
+    video.srcObject = stream;
+    await new Promise(r => video.onloadedmetadata = r);
+
+    const overlay = document.getElementById('overlay');
+    overlay.width = video.videoWidth;
+    overlay.height = video.videoHeight;
+
+    document.getElementById('camContainer').classList.add('active-cam');
+    document.getElementById('camBarTxt').textContent = 'Jonli tahlil ishlayapti...';
+
+    startAnalysis();
+  } catch(e) {
+    document.getElementById('camBarTxt').textContent = 'Kamera ruxsati kerak!';
+  }
+}
+
+const EMOTIONS_UZ = {
+  neutral: { uz: 'Neytral', icon: '😐' },
+  happy: { uz: 'Xursand', icon: '😊' },
+  sad: { uz: 'Xafa', icon: '😢' },
+  angry: { uz: 'G\'azabli', icon: '😠' },
+  fearful: { uz: 'Qo\'rqqan', icon: '😨' },
+  disgusted: { uz: 'Jirkangan', icon: '🤢' },
+  surprised: { uz: 'Hayron', icon: '😲' },
+};
+
+const MOOD_ICONS = { neutral:'😐', happy:'😊', sad:'😢', angry:'😠', fearful:'😨', disgusted:'🤢', surprised:'😲' };
+
+// Smoothing
+const smooth = { age: null, gender: null, genderConf: null, expressions: null };
+const ALPHA = 0.2;
+
+function lerp(a, b, t) { return a + (b - a) * t; }
+function smoothVal(key, newVal) {
+  if (smooth[key] === null) smooth[key] = newVal;
+  else smooth[key] = lerp(smooth[key], newVal, ALPHA);
+  return smooth[key];
+}
+function smoothExpressions(newExp) {
+  if (!smooth.expressions) { smooth.expressions = { ...newExp }; return smooth.expressions; }
+  for (const k in newExp) smooth.expressions[k] = lerp(smooth.expressions[k] || 0, newExp[k], ALPHA);
+  return smooth.expressions;
+}
+
+function computeScore(age, genderConf, expressions, landmarks) {
+  // Symmetry bonus from landmark geometry
+  let score = 65;
+
+  // Happiness boost
+  const happy = expressions?.happy || 0;
+  score += happy * 15;
+
+  // Surprise/neutral variety
+  score += (expressions?.surprised || 0) * 5;
+
+  // Confidence in detection
+  score += genderConf * 10;
+
+  // Age factor (peak 20-35)
+  if (age >= 18 && age <= 35) score += 8;
+  else if (age < 18 || age > 60) score -= 5;
+
+  // Landmark symmetry
+  if (landmarks) {
+    const pts = landmarks.positions;
+    const leftEye = pts[36]; const rightEye = pts[45];
+    const nose = pts[30];
+    const centerX = (leftEye.x + rightEye.x) / 2;
+    const symDiff = Math.abs(centerX - nose.x) / (rightEye.x - leftEye.x);
+    score += (1 - Math.min(symDiff, 1)) * 12;
+  }
+
+  return Math.min(99, Math.max(40, Math.round(score)));
+}
+
+function scoreLabel(s) {
+  if (s >= 90) return 'Ajoyib ko\'rinish! ✨';
+  if (s >= 80) return 'Juda chiroyli! 😍';
+  if (s >= 70) return 'Yaxshi ko\'rinasiz 😊';
+  if (s >= 60) return 'O\'rtacha ko\'rinish';
+  return 'Kameraga yaxshi qarang';
+}
+
+function getTraitColor(pct) {
+  if (pct > 70) return 'linear-gradient(90deg, #b48cff, #ff6eb0)';
+  if (pct > 40) return 'linear-gradient(90deg, #5eb8ff, #b48cff)';
+  return 'linear-gradient(90deg, #5effa0, #5eb8ff)';
+}
+
+function renderTraits(age, gender, genderConf, expressions, score) {
+  const happy = (expressions?.happy || 0) * 100;
+  const neutral = (expressions?.neutral || 0) * 100;
+  const sad = (expressions?.sad || 0) * 100;
+  const positivity = Math.round(happy + neutral * 0.5);
+  const symScore = Math.min(100, score + 5);
+  const energyScore = Math.round(happy * 0.8 + (expressions?.surprised || 0) * 100 * 0.2);
+
+  const traits = [
+    { name: 'Tabassum', val: Math.round(happy) + '%', pct: Math.round(happy) },
+    { name: 'Simmetriya', val: symScore + '%', pct: symScore },
+    { name: 'Pozitivlik', val: positivity + '%', pct: positivity },
+    { name: 'Energiya', val: energyScore + '%', pct: energyScore },
+    { name: 'Ishonch', val: Math.round(genderConf * 100) + '%', pct: Math.round(genderConf * 100) },
+  ];
+
+  const wrap = document.getElementById('traitsWrap');
+  wrap.innerHTML = traits.map(t => `
+    <div class="trait">
+      <div class="trait-header">
+        <span class="trait-name">${t.name}</span>
+        <span class="trait-val" style="color:var(--purple)">${t.val}</span>
+      </div>
+      <div class="trait-bar">
+        <div class="trait-fill" style="width:${t.pct}%; background:${getTraitColor(t.pct)}"></div>
+      </div>
+    </div>
+  `).join('');
+}
+
+function renderEmotions(expressions) {
+  const sorted = Object.entries(expressions)
+    .sort((a,b) => b[1]-a[1])
+    .slice(0, 6);
+  const top = sorted[0][0];
+
+  document.getElementById('emoGrid').innerHTML = sorted.map(([key, val]) => {
+    const info = EMOTIONS_UZ[key] || { uz: key, icon: '😶' };
+    const pct = Math.round(val * 100);
+    return `
+      <div class="emo-chip ${key === top ? 'top' : ''}">
+        <span class="emo-icon">${info.icon}</span>
+        <span class="emo-name">${info.uz}</span>
+        <span class="emo-pct">${pct}%</span>
+      </div>
+    `;
+  }).join('');
+}
+
+function renderTags(age, gender, score, expressions) {
+  const tags = [];
+
+  // Age group
+  if (age < 18) tags.push('O\'smir');
+  else if (age < 25) tags.push('Yosh');
+  else if (age < 35) tags.push('Katta yoshli');
+  else if (age < 50) tags.push('O\'rta yoshli');
+  else tags.push('Katta');
+
+  // Gender
+  tags.push(gender === 'male' ? 'Erkak' : 'Ayol');
+
+  // Mood based
+  const dom = Object.entries(expressions).sort((a,b) => b[1]-a[1])[0];
+  if (dom[0] === 'happy') tags.push('Baxtli kayfiyat');
+  else if (dom[0] === 'neutral') tags.push('Sokin');
+  else if (dom[0] === 'surprised') tags.push('Hayron');
+  else if (dom[0] === 'sad') tags.push('G\'amgin');
+
+  // Score based
+  if (score >= 85) tags.push('Juda chiroyli ✨');
+  else if (score >= 75) tags.push('Chiroyli 😊');
+  else if (score >= 65) tags.push('Yaxshi ko\'rinish');
+
+  // Random fun tag
+  const funTags = ['Fotogenik', 'Ifodali', 'Xarizmatik', 'Tabiiy go\'zallik'];
+  if (score > 70) tags.push(funTags[Math.floor(Math.random() * funTags.length)]);
+
+  document.getElementById('faceTags').innerHTML = tags.map(t => `<div class="tag">${t}</div>`).join('');
+}
+
+let lastFaceTime = 0;
+
+async function startAnalysis() {
+  const video = document.getElementById('video');
+  const overlay = document.getElementById('overlay');
+  const ctx = overlay.getContext('2d');
+
+  async function loop() {
+    const det = await faceapi
+      .detectSingleFace(video, new faceapi.SsdMobilenetv1Options({ minConfidence: 0.5 }))
+      .withFaceLandmarks()
+      .withFaceExpressions()
+      .withAgeAndGender();
+
+    ctx.clearRect(0, 0, overlay.width, overlay.height);
+
+    if (det) {
+      lastFaceTime = Date.now();
+      const noFace = document.getElementById('noFaceMsg');
+      const content = document.getElementById('analysisContent');
+      noFace.style.display = 'none';
+      content.style.display = 'flex';
+
+      // Draw subtle face box
+      const box = det.detection.box;
+      // Mirror correction for drawing
+      const mirroredX = overlay.width - box.x - box.width;
+      ctx.strokeStyle = 'rgba(180,140,255,0.5)';
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([6, 4]);
+      ctx.strokeRect(mirroredX, box.y, box.width, box.height);
+      ctx.setLineDash([]);
+
+      // Draw landmarks dots
+      ctx.fillStyle = 'rgba(180,140,255,0.4)';
+      det.landmarks.positions.forEach(pt => {
+        const mx = overlay.width - pt.x;
+        ctx.beginPath();
+        ctx.arc(mx, pt.y, 1.2, 0, Math.PI*2);
+        ctx.fill();
+      });
+
+      // Smooth values
+      const age = smoothVal('age', det.age);
+      const genderConf = smoothVal('genderConf', det.genderProbability);
+      const expressions = smoothExpressions(det.expressions);
+
+      // Dominant emotion
+      const domEmo = Object.entries(expressions).sort((a,b) => b[1]-a[1])[0];
+      const domEmoInfo = EMOTIONS_UZ[domEmo[0]] || { icon: '😶', uz: domEmo[0] };
+
+      // Gender
+      const genderUz = det.gender === 'male' ? '♂' : '♀';
+
+      // Score
+      const score = computeScore(age, genderConf, expressions, det.landmarks);
+
+      // Quick stats
+      document.getElementById('qAge').textContent = Math.round(age);
+      document.getElementById('qGender').textContent = genderUz;
+      document.getElementById('qMood').textContent = domEmoInfo.icon;
+      document.getElementById('qConf').textContent = Math.round(det.detection.score * 100) + '%';
+
+      // Cam bar
+      document.getElementById('camBarTxt').textContent =
+        `Yosh: ~${Math.round(age)} · ${det.gender === 'male' ? 'Erkak' : 'Ayol'} · ${domEmoInfo.icon} ${domEmoInfo.uz}`;
+
+      // Score ring
+      const pct = score / 100;
+      const circumference = 264;
+      document.getElementById('ringCircle').style.strokeDashoffset = circumference * (1 - pct);
+      document.getElementById('scoreNum').textContent = score;
+      document.getElementById('scoreLabel').textContent = scoreLabel(score);
+
+      // Traits
+      renderTraits(age, det.gender, genderConf, expressions, score);
+      renderEmotions(expressions);
+      renderTags(Math.round(age), det.gender, score, expressions);
+
+    } else {
+      // No face for 2 seconds → show placeholder
+      if (Date.now() - lastFaceTime > 2000) {
+        document.getElementById('noFaceMsg').style.display = 'flex';
+        document.getElementById('analysisContent').style.display = 'none';
+        document.getElementById('camBarTxt').textContent = 'Yuzingizni kameraga qarating...';
+        document.getElementById('qAge').textContent = '—';
+        document.getElementById('qGender').textContent = '—';
+        document.getElementById('qMood').textContent = '—';
+        document.getElementById('qConf').textContent = '—';
+      }
+    }
+
+    setTimeout(loop, 200);
+  }
+
+  loop();
+}
+
+window.addEventListener('load', () => setTimeout(loadModels, 200));
+</script>
+</body>
+</html>
